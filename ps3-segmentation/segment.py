@@ -44,14 +44,9 @@ def generate_adjacency_matrix(SPM:np.ndarray, plot=False) -> np.ndarray:
     Input: superPixelMapFile
     Output: adjacency matrix
     Plot: overlayed markov graph
-    """
-    # SPM =  loadmat(superPixelMapFile)['labels']
-    # print(loadmat(superPixelMapFile).keys())
-    # print(loadmat(superPixelMapFile)['modes'].shape)
-    
+    """    
     label_num = SPM.max() + 1
     adj_matrix = np.zeros([label_num, label_num])
-    # adj_matrix = np.eye(label_num)
     # scan (avoid dup writing by more reading to improve efficiency)
     for r in range(SPM.shape[0]):
         for c in range(SPM.shape[1]):
@@ -70,19 +65,13 @@ def generate_adjacency_matrix(SPM:np.ndarray, plot=False) -> np.ndarray:
     centers = np.zeros([label_num, 2])
     _util_x_vec, _util_y_vec = np.arange(SPM.shape[1]), np.arange(SPM.shape[0])
     util_matrix_x, util_matrix_y = np.meshgrid(_util_x_vec, _util_y_vec)
-    # print(_util_x_vec.max(), _util_y_vec.max())
-    # print(_util_x_vec, util_matrix_x, SPM == 0, util_matrix_x[SPM == 0], SPM)
     for label in range(label_num):
         centers[label, 0] = util_matrix_x[SPM == label].mean()
         centers[label, 1] = util_matrix_y[SPM == label].mean()
 
-    # print(centers.max(axis=0))
-    # plt.imshow(SPM)
     for r in range(label_num):
-    # for r in range(4):
         for c in range(r):
             if adj_matrix[r,c]:
-                # print(f"{r} {[centers[r, 0], centers[c, 0]],[centers[r, 1], centers[c, 1]]}")
                 plt.plot([centers[r, 0], centers[c, 0]],[centers[r, 1], centers[c, 1]] )
     # plt.show()
     plt.savefig("q4-b.png")
@@ -139,24 +128,7 @@ def loopy_BP(luvImage:np.ndarray, SPM:np.ndarray, adj_matrix:np.ndarray, beta:in
     message_mtr = np.zeros([pixel_num, pixel_num, 2])
     assert luvImage.shape[:-1] == SPM.shape
 
-    # _ = plt.figure()
-    # plt.imshow(luvImage)
-    # plt.title("LuvImage")
-    # plt.savefig("luvImage.png")
-
     y_i = np.array([luvImage[SPM==label].mean(axis=0) for label in range(pixel_num)])
-
-    # _img = np.zeros([SPM.shape[0], SPM.shape[1], 3])
-    # for label in range(pixel_num):
-    #     _img[SPM == label] = y_i[label]
-    
-    # _ = plt.figure()
-    # plt.imshow(_img)
-    # plt.title("Y_i")
-    # plt.colorbar()
-    # plt.savefig("y_i.png")
-    # print(f"y_i {y_i[:10]} y_i.shape {y_i.shape} y_i range {y_i.max(), y_i.min()} pixel num {pixel_num} luvImage {luvImage[:10]} range {luvImage.max(), luvImage.min()}")
-
     assert y_i.shape[0] ==  pixel_num
     assert y_i.shape[1] == 3
     unary_phi = np.zeros([pixel_num, 2])              # log value [0, 1]
@@ -169,13 +141,10 @@ def loopy_BP(luvImage:np.ndarray, SPM:np.ndarray, adj_matrix:np.ndarray, beta:in
         factor = 1 / np.exp(unary_phi).sum(axis=1)
         unary_phi[:, 0] = np.log(np.exp(unary_phi[:, 0]) * factor)
         unary_phi[:, 1] = np.log(np.exp(unary_phi[:, 1]) * factor)
-
-    # print(np.log(np.exp(unary_phi).sum(axis=1)))
     
     def _single_update(_belief_list, _message_mtr):
         for s in range(pixel_num):
             for t in range(pixel_num):
-                # print(f"min message {_message_mtr[adj_matrix==1].min()} max message {_message_mtr[adj_matrix==1].max()}")
                 # send message s->t
                 if adj_matrix[s, t] == 1 and s != t:
                     neighbor_mt = adj_matrix[:,s] == 1 # neighbors
@@ -219,7 +188,6 @@ def loopy_BP(luvImage:np.ndarray, SPM:np.ndarray, adj_matrix:np.ndarray, beta:in
             for s_val in range(2):
                 neighbors = adj_matrix[:,s] == 1
                 _belief_list[s, s_val] = unary_phi[s, s_val] + np.sum(message_mtr[neighbors, s, s_val])
-                # normalization?
         try:
             assert _belief_list.min() > -float("inf")
         except:
@@ -237,8 +205,6 @@ def loopy_BP(luvImage:np.ndarray, SPM:np.ndarray, adj_matrix:np.ndarray, beta:in
         new_belief_list, message_mtr = _single_update(_belief_list=belief_list, _message_mtr=message_mtr)
         if np.abs(np.exp(belief_list) - np.exp(new_belief_list)).max() < stopping_condition:
             belief_list = new_belief_list
-            # print(f"Stable Condition {np.abs(np.exp(belief_list) - np.exp(new_belief_list)).max()} - {_}")
-            # print(belief_list.max(), new_belief_list.max())
             break
         belief_list = new_belief_list
     
@@ -247,7 +213,6 @@ def loopy_BP(luvImage:np.ndarray, SPM:np.ndarray, adj_matrix:np.ndarray, beta:in
     for label in range(pixel_num):
         _img[SPM == label] = np.exp(belief_list[label, 0])
     
-    # print(belief_list.max(), belief_list.min())
     _ = plt.figure()
     plt.imshow(_img)
     plt.colorbar()
@@ -287,7 +252,6 @@ if __name__ == '__main__':
     SPM =  loadmat(superpixelMapFile)['labels']
 
     # Fit the Gaussian Mixture
-    # print(luvImage.shape)
     f_gmm = generate_Y(foreground)
     b_gmm = generate_Y(background)
 
