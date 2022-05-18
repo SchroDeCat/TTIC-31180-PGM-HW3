@@ -31,6 +31,15 @@ def prettyPrintArray(array):
     table = [fmt.format(*row) for row in s]
     print('\n'.join(table))
 
+def printLatexFormat(array):
+    res = ""
+    for row in array:
+        for e in row:
+            res += f"{e:.3e} &"
+        res = res[:-1]
+        res += "\\\\ \n \hline \n "
+    print(res)
+
 def generate_Y(luvImage:np.ndarray)-> GaussianMixture:
     """
     Return the fitted Gaussian Mixture model.
@@ -111,7 +120,7 @@ def edge_potential_constant(beta:int, normalize:bool=True) -> np.ndarray:
     
 
 def loopy_BP(luvImage:np.ndarray, SPM:np.ndarray, adj_matrix:np.ndarray, beta:int, 
-            b_gmm:GaussianMixture, f_gmm:GaussianMixture, normalize:bool=True, stopping_condition:float=1e-5, max_iter:int=1000000) -> np.ndarray:
+            b_gmm:GaussianMixture, f_gmm:GaussianMixture, normalize:bool=True, stopping_condition:float=1e-5, max_iter:int=1000000000) -> np.ndarray:
     """
     Input: 
         @luvImage: 3 * w * h pixel values
@@ -207,6 +216,9 @@ def loopy_BP(luvImage:np.ndarray, SPM:np.ndarray, adj_matrix:np.ndarray, beta:in
             belief_list = new_belief_list
             break
         belief_list = new_belief_list
+
+    if _ == max_iter - 1:
+        print(f"Encounter Max Iter Limitation {max_iter}")    
     
     
     _img = SPM.copy()
@@ -255,10 +267,23 @@ if __name__ == '__main__':
     f_gmm = generate_Y(foreground)
     b_gmm = generate_Y(background)
 
+    print(f"Beta {beta}")
+    # f_mean_str = ",".join([f"{e:.3e}" for e in f_gmm.covariances_.diagonal()])
+    # print(f"foreground cov diag {f_mean_str}")
+    # print("foreground mean vec (Latex Table)")
+    # printLatexFormat(f_gmm.means_.T)
+
+    # b_mean_str = ",".join([f"{e:.3e}" for e in b_gmm.covariances_.diagonal()])
+    # print(f"background cov diag {b_mean_str}")
+    # print("background mean vec  (Latex Table)")
+    # printLatexFormat(b_gmm.means_.T)
+
     # print(f"foreground cov diag {f_gmm.covariances_.diagonal()}")
-    # prettyPrintArray(f_gmm.means_)
+    # print("foreground mean vec")
+    # prettyPrintArray(b_gmm.means_.T)
     # print(f"background cov diag {b_gmm.covariances_.diagonal()}")
-    # prettyPrintArray(b_gmm.means_)
+    # print("background mean vec")
+    # prettyPrintArray(f_gmm.means_.T)
 
 
     # superpxiel plot
