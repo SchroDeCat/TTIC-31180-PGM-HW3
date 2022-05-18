@@ -108,9 +108,9 @@ def edge_potential_constant(beta:int, normalize:bool=True) -> np.ndarray:
     """
     Output: log likelihood
     """
-    _tmp = np.zeros([3,3])
-    for i in range(3):
-        for j in range(3):
+    _tmp = np.zeros([2,2])
+    for i in range(2):
+        for j in range(2):
             _tmp[i, j] = _edge_potential(i, j, beta)[0]
     if normalize:
         likelihood = np.exp(_tmp)
@@ -133,24 +133,24 @@ def loopy_BP(luvImage:np.ndarray, SPM:np.ndarray, adj_matrix:np.ndarray, beta:in
         calibrated belief --> np.ndarray.
     """
     pixel_num = adj_matrix.shape[0] # number of superpixel
-    belief_list = np.zeros([pixel_num, 3])
-    message_mtr = np.zeros([pixel_num, pixel_num, 3])
+    belief_list = np.zeros([pixel_num, 2])
+    message_mtr = np.zeros([pixel_num, pixel_num, 2])
     assert luvImage.shape[:-1] == SPM.shape
 
     y_i = np.array([luvImage[SPM==label].mean(axis=0) for label in range(pixel_num)])
     assert y_i.shape[0] ==  pixel_num
     assert y_i.shape[1] == 3
-    unary_phi = np.zeros([pixel_num, 3])              # log value [0, 1]
+    unary_phi = np.zeros([pixel_num, 2])              # log value [0, 1]
     edge_phi_constant = edge_potential_constant(beta, normalize) # log value [[0,0],[0,1]; [1.0], [1,1]]
 
     # init phi
-    unary_phi[:, 1] = node_potential(f_gmm, y_i)[0]     # label = 1
-    unary_phi[:, 2] = node_potential(b_gmm, y_i)[0]     # label = 2
+    unary_phi[:, 0] = node_potential(f_gmm, y_i)[0]     # label = 1
+    unary_phi[:, 1] = node_potential(b_gmm, y_i)[0]     # label = 2
     if normalize:
         factor = 1 / np.exp(unary_phi).sum(axis=1)
-        # unary_phi[:, 0] = np.log(np.exp(unary_phi[:, 0]) * factor)
+        unary_phi[:, 0] = np.log(np.exp(unary_phi[:, 0]) * factor)
         unary_phi[:, 1] = np.log(np.exp(unary_phi[:, 1]) * factor)
-        unary_phi[:, 2] = np.log(np.exp(unary_phi[:, 2]) * factor)
+        # unary_phi[:, 2] = np.log(np.exp(unary_phi[:, 2]) * factor)
     # unary_phi[:, 0] = np.log(1 -  np.exp(unary_phi[:, 1]) -  np.exp(unary_phi[:, 2]))  # label = 0
     
     def _single_update(_belief_list, _message_mtr):
@@ -159,9 +159,9 @@ def loopy_BP(luvImage:np.ndarray, SPM:np.ndarray, adj_matrix:np.ndarray, beta:in
                 # send message s->t
                 if adj_matrix[s, t] == 1 and s != t:
                     neighbor_mt = adj_matrix[:,s] == 1 # neighbors
-                    for t_val in range(3):
-                        _tmp_s = np.zeros(3)
-                        for s_val in range(3):   
+                    for t_val in range(2):
+                        _tmp_s = np.zeros(2)
+                        for s_val in range(2):   
                             _tmp_s[s_val] = unary_phi[s, s_val] + edge_phi_constant[s_val, t_val] + np.sum(_message_mtr[neighbor_mt, s, s_val]) - _message_mtr[t, s, s_val]
                         try:
                             _sum_val = np.sum(np.exp(_tmp_s))
@@ -180,12 +180,12 @@ def loopy_BP(luvImage:np.ndarray, SPM:np.ndarray, adj_matrix:np.ndarray, beta:in
                             raise ValueError(f"message matrix {_message_mtr[adj_matrix==1].argmin(), s, t, _message_mtr[adj_matrix==1].min()} is -inf")
                 
                     # update belief & normalize messages
-                    for t_val in range(3):
+                    for t_val in range(2):
                         neighbors = adj_matrix[:,t] == 1
                         _belief_list[t, t_val] = unary_phi[t, t_val] + np.sum(message_mtr[neighbors, t, t_val])    
                     if normalize:
                         log_factor = np.log(np.exp(_belief_list[t]).sum())
-                        for t_val in range(3):
+                        for t_val in range(2):
                             message_mtr[s, t, t_val] = message_mtr[s, t, t_val] - log_factor
                             _belief_list[t, t_val] = unary_phi[t, t_val] + np.sum(message_mtr[neighbors, t, t_val]) 
                     try:
@@ -196,7 +196,7 @@ def loopy_BP(luvImage:np.ndarray, SPM:np.ndarray, adj_matrix:np.ndarray, beta:in
             
         # update belief
         for s in range(pixel_num):
-            for s_val in range(3):
+            for s_val in range(2):
                 neighbors = adj_matrix[:,s] == 1
                 _belief_list[s, s_val] = unary_phi[s, s_val] + np.sum(message_mtr[neighbors, s, s_val])
         try:
@@ -206,7 +206,7 @@ def loopy_BP(luvImage:np.ndarray, SPM:np.ndarray, adj_matrix:np.ndarray, beta:in
             raise ValueError(f"belief -inf")
         if normalize:
             factor = 1 / np.exp(_belief_list).sum(axis=1)
-            for i in range(3):
+            for i in range(2):
                 _belief_list[:, i] = np.log(np.exp(_belief_list[:, i]) * factor)
 
         
@@ -225,12 +225,18 @@ def loopy_BP(luvImage:np.ndarray, SPM:np.ndarray, adj_matrix:np.ndarray, beta:in
     
     _img = SPM.copy()
     for label in range(pixel_num):
-        _img[SPM == label] = np.argmax(belief_list[label, :])
+        post_belief_list = np.zeros([pixel_num, 3])
+        post_belief_list[:,2] = belief_list[:,1].copy()
+        post_belief_list[:,1] = belief_list[:,0].copy()
+        post_belief_list[:,0] = np.log(1.01 - np.sum(np.exp(post_belief_list[:,1:]), axis=1))
+        _img[SPM == label] = np.argmax(post_belief_list[label, 0:])
+        # _img[SPM == label] = np.argmax(post_belief_list[label, 1:])
+        # _img[SPM == label] = np.exp(belief_list[label, 0])
     
     _ = plt.figure()
     plt.imshow(_img)
     plt.colorbar()
-    plt.savefig(f"q4-c-beta-{beta}.png")
+    plt.savefig(f"q4-c-beta-{beta}-argmax.png")
     # plt.show()
     return belief_list
 
@@ -270,22 +276,22 @@ if __name__ == '__main__':
     b_gmm = generate_Y(background)
 
     print(f"Beta {beta}")
-    # f_mean_str = ",".join([f"{e:.3e}" for e in f_gmm.covariances_.diagonal()])
-    # print(f"foreground cov diag {f_mean_str}")
-    # print("foreground mean vec (Latex Table)")
-    # printLatexFormat(f_gmm.means_.T)
+    f_mean_str = ",".join([f"{e:.3e}" for e in f_gmm.covariances_.diagonal()])
+    print(f"foreground cov diag {f_mean_str}")
+    print("foreground mean vec (Latex Table)")
+    printLatexFormat(f_gmm.means_.T)
 
-    # b_mean_str = ",".join([f"{e:.3e}" for e in b_gmm.covariances_.diagonal()])
-    # print(f"background cov diag {b_mean_str}")
-    # print("background mean vec  (Latex Table)")
-    # printLatexFormat(b_gmm.means_.T)
+    b_mean_str = ",".join([f"{e:.3e}" for e in b_gmm.covariances_.diagonal()])
+    print(f"background cov diag {b_mean_str}")
+    print("background mean vec  (Latex Table)")
+    printLatexFormat(b_gmm.means_.T)
 
-    # print(f"foreground cov diag {f_gmm.covariances_.diagonal()}")
-    # print("foreground mean vec")
-    # prettyPrintArray(b_gmm.means_.T)
-    # print(f"background cov diag {b_gmm.covariances_.diagonal()}")
-    # print("background mean vec")
-    # prettyPrintArray(f_gmm.means_.T)
+    print(f"foreground cov diag {f_gmm.covariances_.diagonal()}")
+    print("foreground mean vec")
+    prettyPrintArray(b_gmm.means_.T)
+    print(f"background cov diag {b_gmm.covariances_.diagonal()}")
+    print("background mean vec")
+    prettyPrintArray(f_gmm.means_.T)
 
 
     # superpxiel plot
