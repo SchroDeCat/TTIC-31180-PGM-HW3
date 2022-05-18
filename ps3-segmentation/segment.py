@@ -50,7 +50,8 @@ def generate_adjacency_matrix(SPM:np.ndarray, plot=False) -> np.ndarray:
     # print(loadmat(superPixelMapFile)['modes'].shape)
     
     label_num = SPM.max() + 1
-    adj_matrix = np.eye(label_num)
+    adj_matrix = np.zeros([label_num, label_num])
+    # adj_matrix = np.eye(label_num)
     # scan (avoid dup writing by more reading to improve efficiency)
     for r in range(SPM.shape[0]):
         for c in range(SPM.shape[1]):
@@ -97,7 +98,7 @@ def node_potential(gmm:GaussianMixture, y: np.ndarray)->np.ndarray:
     likelihood = np.exp(log_likelihood)
     return log_likelihood, likelihood
 
-def _edge_potential(x_i:int, x_j:int, beta:int=2,) -> np.float:
+def _edge_potential(x_i:int, x_j:int, beta:int=2) -> float:
     """
     Output: (log) likelihood
     """
@@ -105,7 +106,7 @@ def _edge_potential(x_i:int, x_j:int, beta:int=2,) -> np.float:
     likelihood = np.exp(log_likelihood)
     return log_likelihood, likelihood
 
-def edge_potential_constant(beta:int) -> np.ndarray:
+def edge_potential_constant(beta:int, normalize:bool=True) -> np.ndarray:
     """
     Output: log likelihood
     """
@@ -113,14 +114,15 @@ def edge_potential_constant(beta:int) -> np.ndarray:
     for i in range(2):
         for j in range(2):
             _tmp[i, j] = _edge_potential(i, j, beta)[0]
+    if normalize:
+        likelihood = np.exp(_tmp)
+        likelihood = likelihood / sum(likelihood)
+        _tmp = np.log(likelihood)
     return _tmp
     
 
-def potentials():
-    pass
-
 def loopy_BP(luvImage:np.ndarray, SPM:np.ndarray, adj_matrix:np.ndarray, beta:int, 
-            b_gmm:GaussianMixture, f_gmm:GaussianMixture, stopping_condition:np.float=1e-5, max_iter:int=1000000) -> np.ndarray:
+            b_gmm:GaussianMixture, f_gmm:GaussianMixture, normalize:bool=True, stopping_condition:float=1e-5, max_iter:int=1000000) -> np.ndarray:
     """
     Input: 
         @luvImage: 3 * w * h pixel values
@@ -144,61 +146,79 @@ def loopy_BP(luvImage:np.ndarray, SPM:np.ndarray, adj_matrix:np.ndarray, beta:in
 
     y_i = np.array([luvImage[SPM==label].mean(axis=0) for label in range(pixel_num)])
 
-    _img = np.zeros([SPM.shape[0], SPM.shape[1], 3])
-    for label in range(pixel_num):
-        _img[SPM == label] = y_i[label]
+    # _img = np.zeros([SPM.shape[0], SPM.shape[1], 3])
+    # for label in range(pixel_num):
+    #     _img[SPM == label] = y_i[label]
     
     # _ = plt.figure()
     # plt.imshow(_img)
     # plt.title("Y_i")
     # plt.colorbar()
     # plt.savefig("y_i.png")
-
-    return 0
+    # print(f"y_i {y_i[:10]} y_i.shape {y_i.shape} y_i range {y_i.max(), y_i.min()} pixel num {pixel_num} luvImage {luvImage[:10]} range {luvImage.max(), luvImage.min()}")
 
     assert y_i.shape[0] ==  pixel_num
     assert y_i.shape[1] == 3
     unary_phi = np.zeros([pixel_num, 2])              # log value [0, 1]
-    edge_phi_constant = edge_potential_constant(beta) # log value [[0,0],[0,1]; [1.0], [1,1]]
+    edge_phi_constant = edge_potential_constant(beta, normalize) # log value [[0,0],[0,1]; [1.0], [1,1]]
 
     # init phi
-    print(f"y_i {y_i[:10]} y_i.shape {y_i.shape} y_i range {y_i.max(), y_i.min()} pixel num {pixel_num} luvImage {luvImage[:10]} range {luvImage.max(), luvImage.min()}")
     unary_phi[:, 0] = node_potential(f_gmm, y_i)[0]     # label = 1
     unary_phi[:, 1] = node_potential(b_gmm, y_i)[0]     # label = 2
+    if normalize:
+        factor = 1 / np.exp(unary_phi).sum(axis=1)
+        unary_phi[:, 0] = np.log(np.exp(unary_phi[:, 0]) * factor)
+        unary_phi[:, 1] = np.log(np.exp(unary_phi[:, 1]) * factor)
+
+    # print(np.log(np.exp(unary_phi).sum(axis=1)))
     
     def _single_update(_belief_list, _message_mtr):
-        print(message_mtr.min(), "min")
         for s in range(pixel_num):
             for t in range(pixel_num):
+                # print(f"min message {_message_mtr[adj_matrix==1].min()} max message {_message_mtr[adj_matrix==1].max()}")
                 # send message s->t
                 if adj_matrix[s, t] == 1 and s != t:
-                    neighbor_mt = adj_matrix[s,:] == 1 # neighbors other than t, s
-                    neighbor_mt[s] = False
-                    neighbor_mt[t] = False
+                    neighbor_mt = adj_matrix[:,s] == 1 # neighbors
                     for t_val in range(2):
                         _tmp_s = [0, 0]
                         for s_val in range(2):   
-                            _tmp_s[s_val] = unary_phi[s, s_val] + edge_phi_constant[s_val, t_val] + np.sum(_message_mtr[neighbor_mt, s, s_val])
-                        _sum_val = np.sum(np.exp(_tmp_s))
+                            _tmp_s[s_val] = unary_phi[s, s_val] + edge_phi_constant[s_val, t_val] + np.sum(_message_mtr[neighbor_mt, s, s_val]) - _message_mtr[t, s, s_val]
                         try:
+                            _sum_val = np.sum(np.exp(_tmp_s))
                             assert _sum_val > 0
                         except:
-                            print(_tmp_s, 'unary', unary_phi[s,:], 'edge', edge_phi_constant, np.sum(neighbor_mt), _message_mtr[neighbor_mt, s, s_val], "sum", np.sum(_message_mtr[neighbor_mt, s, s_val]))
+                            print(f"s, t {s, t}")
+                            print("tmp_s", _tmp_s, 'unary', unary_phi[s,:], np.exp(unary_phi[s,:]), 'edge', edge_phi_constant, np.exp(edge_phi_constant))
+                            print('neighbor', np.sum(neighbor_mt), 'message', _message_mtr[neighbor_mt, s, s_val])
+                            print("sum", _sum_val, "sum neighbors", np.sum(_message_mtr[neighbor_mt, s, s_val] - _message_mtr[t, s, s_val]))
                             raise ValueError(f"tmp_s {_tmp_s}")
                         _message_mtr[s, t, t_val] = np.log(_sum_val)
+                        try:
+                            assert _message_mtr[adj_matrix==1].min() > -np.float("inf")
+                        except:
+                            print(f"sum val {_sum_val}")
+                            raise ValueError(f"message matrix {_message_mtr[adj_matrix==1].argmin(), s, t} is -inf")
                     
         # update belief
         for s in range(pixel_num):
             for s_val in range(2):
-                neighbors = adj_matrix[s,:] == 1
-                neighbors[s] = False
+                neighbors = adj_matrix[:,s] == 1
                 _belief_list[s, s_val] = unary_phi[s, s_val] + np.sum(message_mtr[neighbors, s, s_val])
                 # normalization?
+        try:
+            assert _belief_list.min() > -np.float("inf")
+        except:
+            print('max', _belief_list.max(), 'sample', _belief_list[:30])
+            raise ValueError(f"belief -inf")
+        if normalize:
+            factor = 1 / np.exp(_belief_list).sum(axis=1)
+            _belief_list[:, 0] = np.log(np.exp(_belief_list[:, 0]) * factor)
+            _belief_list[:, 1] = np.log(np.exp(_belief_list[:, 1]) * factor)
+
         
         return _belief_list, _message_mtr
     
     for _ in range(max_iter):
-        print(message_mtr.min(), message_mtr.max())
         new_belief_list, message_mtr = _single_update(_belief_list=belief_list, _message_mtr=message_mtr)
         if np.abs(np.exp(belief_list) - np.exp(new_belief_list)).max() < stopping_condition:
             belief_list = new_belief_list
@@ -255,10 +275,10 @@ if __name__ == '__main__':
     f_gmm = generate_Y(foreground)
     b_gmm = generate_Y(background)
 
-    print(f"foreground cov diag {f_gmm.covariances_.diagonal()}")
-    prettyPrintArray(f_gmm.means_)
-    print(f"background cov diag {b_gmm.covariances_.diagonal()}")
-    prettyPrintArray(b_gmm.means_)
+    # print(f"foreground cov diag {f_gmm.covariances_.diagonal()}")
+    # prettyPrintArray(f_gmm.means_)
+    # print(f"background cov diag {b_gmm.covariances_.diagonal()}")
+    # prettyPrintArray(b_gmm.means_)
 
 
     # superpxiel plot
