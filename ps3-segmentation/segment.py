@@ -194,11 +194,26 @@ def loopy_BP(luvImage:np.ndarray, SPM:np.ndarray, adj_matrix:np.ndarray, beta:in
                             raise ValueError(f"tmp_s {_tmp_s}")
                         _message_mtr[s, t, t_val] = np.log(_sum_val)
                         try:
-                            assert _message_mtr[adj_matrix==1].min() > -np.float("inf")
+                            assert _message_mtr[adj_matrix==1].min() > -float("inf")
                         except:
                             print(f"sum val {_sum_val}")
-                            raise ValueError(f"message matrix {_message_mtr[adj_matrix==1].argmin(), s, t} is -inf")
-                    
+                            raise ValueError(f"message matrix {_message_mtr[adj_matrix==1].argmin(), s, t, _message_mtr[adj_matrix==1].min()} is -inf")
+                
+                    # update belief & normalize messages
+                    for t_val in range(2):
+                        neighbors = adj_matrix[:,t] == 1
+                        _belief_list[t, t_val] = unary_phi[t, t_val] + np.sum(message_mtr[neighbors, t, t_val])    
+                    if normalize:
+                        log_factor = np.log(np.exp(_belief_list[t]).sum())
+                        for t_val in range(2):
+                            message_mtr[s, t, t_val] = message_mtr[s, t, t_val] - log_factor
+                            _belief_list[t, t_val] = unary_phi[t, t_val] + np.sum(message_mtr[neighbors, t, t_val]) 
+                    try:
+                        assert _message_mtr[adj_matrix==1].min() > -float("inf")
+                    except:
+                        print(f"sum val {_sum_val}")
+                        raise ValueError(f"message matrix {_message_mtr[adj_matrix==1].argmin(), s, t, _message_mtr[adj_matrix==1].min()} is -inf")
+            
         # update belief
         for s in range(pixel_num):
             for s_val in range(2):
@@ -206,7 +221,7 @@ def loopy_BP(luvImage:np.ndarray, SPM:np.ndarray, adj_matrix:np.ndarray, beta:in
                 _belief_list[s, s_val] = unary_phi[s, s_val] + np.sum(message_mtr[neighbors, s, s_val])
                 # normalization?
         try:
-            assert _belief_list.min() > -np.float("inf")
+            assert _belief_list.min() > -float("inf")
         except:
             print('max', _belief_list.max(), 'sample', _belief_list[:30])
             raise ValueError(f"belief -inf")
@@ -222,8 +237,8 @@ def loopy_BP(luvImage:np.ndarray, SPM:np.ndarray, adj_matrix:np.ndarray, beta:in
         new_belief_list, message_mtr = _single_update(_belief_list=belief_list, _message_mtr=message_mtr)
         if np.abs(np.exp(belief_list) - np.exp(new_belief_list)).max() < stopping_condition:
             belief_list = new_belief_list
-            print(f"Stable Condition {np.abs(np.exp(belief_list) - np.exp(new_belief_list)).max()} - {_}")
-            print(belief_list.max(), new_belief_list.max())
+            # print(f"Stable Condition {np.abs(np.exp(belief_list) - np.exp(new_belief_list)).max()} - {_}")
+            # print(belief_list.max(), new_belief_list.max())
             break
         belief_list = new_belief_list
     
@@ -232,11 +247,12 @@ def loopy_BP(luvImage:np.ndarray, SPM:np.ndarray, adj_matrix:np.ndarray, beta:in
     for label in range(pixel_num):
         _img[SPM == label] = np.exp(belief_list[label, 0])
     
-    print(belief_list.max(), belief_list.min())
+    # print(belief_list.max(), belief_list.min())
     _ = plt.figure()
     plt.imshow(_img)
     plt.colorbar()
-    plt.show()
+    plt.savefig(f"q4-c-beta-{beta}.png")
+    # plt.show()
     return belief_list
 
 
